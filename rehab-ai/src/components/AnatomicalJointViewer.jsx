@@ -151,7 +151,7 @@ export default function AnatomicalJointViewer({
     setSelectedPathologyId(item.id);
     setCustomPathologyText('');
     setIsCustomEditing(false);
-    if (onPathologyChange) onPathologyChange(item);
+    if (onPathologyChange) onPathologyChange(item, activeRegion);
   };
 
   return (
@@ -169,8 +169,8 @@ export default function AnatomicalJointViewer({
             {[
               { id: 'knee', label: '🦵 Knee' },
               { id: 'shoulder', label: '💪 Shoulder' },
-              { id: 'hip', label: '🦴 Hip' },
-              { id: 'spine', label: '🧬 Spine' },
+              { id: 'hip', label: '🩻 Hip' },
+              { id: 'spine', label: '🧘 Spine' },
               { id: 'ankle', label: '🦶 Ankle' }
             ].map(r => (
               <button
@@ -181,6 +181,7 @@ export default function AnatomicalJointViewer({
                   const first = PATHOLOGY_CATALOG[r.id][0];
                   setSelectedPathologyId(first.id);
                   setCustomPathologyText('');
+                  if (onPathologyChange) onPathologyChange(first, r.id);
                 }}
                 className={`px-2.5 py-1 rounded-xl transition-all ${
                   activeRegion === r.id
@@ -305,8 +306,13 @@ export default function AnatomicalJointViewer({
             />
             <button
               type="button"
-              onClick={() => setIsCustomEditing(false)}
-              className="bg-slate-900 text-white px-3 py-1 rounded-xl text-xs font-bold"
+              onClick={() => {
+                setIsCustomEditing(false);
+                if (customPathologyText.trim() && onPathologyChange) {
+                  onPathologyChange({ id: 'custom', name: customPathologyText.trim(), target: 'Target Pathology' }, activeRegion);
+                }
+              }}
+              className="bg-slate-900 hover:bg-slate-800 text-white px-3 py-1 rounded-xl text-xs font-bold"
             >
               Set Pin
             </button>

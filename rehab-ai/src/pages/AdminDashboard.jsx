@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_URL } from '../config';
 import PoseCareLogo from '../components/PoseCareLogo';
+import { authStorage } from '../utils/authStorage';
 
 export default function AdminDashboard() {
   const navigate = useNavigate();
-  const token = localStorage.getItem('token');
-  const user = JSON.parse(localStorage.getItem('user') || 'null');
+  const token = authStorage.getToken();
+  const user = authStorage.getUser();
 
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);

@@ -1,4 +1,5 @@
 import { OneEuroFilter, LandmarkSmoother } from './oneEuroFilter';
+import { AdaptiveConfidenceFilter } from './adaptiveConfidenceFilter';
 
 /**
  * 2D Angle Calculation between three points (vertex at b)
@@ -273,6 +274,12 @@ export const validateExerciseForm = (exerciseName, landmarks, selectedArm = 'rig
  */
 export class BiomechanicsEngine {
   constructor(options = {}) {
+    this.confidenceFilter = new AdaptiveConfidenceFilter({
+      minConfidence: options.minConfidence ?? 0.45,
+      highConfidence: options.highConfidence ?? 0.75,
+      maxOcclusionFrames: options.maxOcclusionFrames ?? 15,
+      velocityDamping: options.velocityDamping ?? 0.85
+    });
     this.landmarkSmoother = new LandmarkSmoother(1.2, 0.05);
     this.angleSmoother = new OneEuroFilter(1.5, 0.02);
 
@@ -305,6 +312,7 @@ export class BiomechanicsEngine {
     this.maxAngleSeen = 0;
     this.repAngleHistory = [];
     this.formViolationsLog = [];
+    this.confidenceFilter.reset();
     this.landmarkSmoother.reset();
     this.angleSmoother.reset();
   }
@@ -316,11 +324,17 @@ export class BiomechanicsEngine {
     selectedArm = 'right',
     timestamp = performance.now()
   }) {
-    // 1. Signal Smoothing Layer
-    const smoothedLandmarks = this.landmarkSmoother.filterLandmarks(rawLandmarks, timestamp);
+    // 1. Adaptive Confidence Filter (rejects noise, damps occlusion jitter)
+    const { filteredLandmarks: confFilteredLandmarks, globalConfidence, occludedJointIndices } = 
+      this.confidenceFilter.filter(rawLandmarks, timestamp);
 
-    // 2. Pose Quality Index & Occlusion Check
+    // 2. Signal Smoothing Layer (1€ low-pass)
+    const smoothedLandmarks = this.landmarkSmoother.filterLandmarks(confFilteredLandmarks, timestamp);
+
+    // 3. Pose Quality Index & Occlusion Check
     const poseQuality = evaluatePoseQuality(smoothedLandmarks, resolvedJoints);
+    poseQuality.globalConfidence = globalConfidence;
+    poseQuality.occludedJoints = Array.from(new Set([...poseQuality.occludedJoints, ...occludedJointIndices]));
 
     if (!poseQuality.isValid || !smoothedLandmarks || smoothedLandmarks.length === 0) {
       return {
@@ -340,7 +354,7 @@ export class BiomechanicsEngine {
       };
     }
 
-    // 3. Angle Computation (Raw + Filtered)
+    // 4. Angle Computation (Raw + Filtered)
     const [j1, j2, j3] = resolvedJoints || [12, 14, 16];
     const pt1 = smoothedLandmarks[j1];
     const pt2 = smoothedLandmarks[j2];

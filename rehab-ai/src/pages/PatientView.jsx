@@ -19,6 +19,10 @@ import DailyPrescriptionCalendar from '../components/DailyPrescriptionCalendar';
 import ExerciseTutorialModal from '../components/ExerciseTutorialModal';
 import DiscomfortReportModal from '../components/DiscomfortReportModal';
 import MuscularAnatomyViewer from '../components/MuscularAnatomyViewer';
+import { useLanguage } from '../context/LanguageContext';
+import { offlineSyncEngine } from '../utils/offlineSyncEngine';
+import { authStorage } from '../utils/authStorage';
+
 
 const EXERCISE_REFS = {
   'Bicep Curl (Standing)': {
@@ -426,6 +430,12 @@ export default function PatientView() {
   const [showDiscomfortModal, setShowDiscomfortModal] = useState(false);
   const [isCompletedForToday, setIsCompletedForToday] = useState(false);
 
+  // Offline Sync Layer States
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [queuedSyncCount, setQueuedSyncCount] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncFeedbackMessage, setSyncFeedbackMessage] = useState('');
+
   // Stats & Achievements tab interactive states
   const [statsChartMode, setStatsChartMode] = useState('reps'); // 'reps', 'accuracy', 'rom'
   const [statsFilterGame, setStatsFilterGame] = useState('all');
@@ -466,28 +476,113 @@ export default function PatientView() {
     setShowTutorialModal(true);
   };
 
-  // Atomic backend progress increment (survives refresh, shared across all games)
+  // Background Offline Sync Monitor
+  useEffect(() => {
+    const checkSyncQueue = async () => {
+      const q = await offlineSyncEngine.getQueuedCount();
+      setQueuedSyncCount(q.total);
+    };
+
+    const handleOnlineStatus = async () => {
+      const online = navigator.onLine;
+      setIsOnline(online);
+      await checkSyncQueue();
+
+      if (online && !isSyncing) {
+        setIsSyncing(true);
+        try {
+          const res = await offlineSyncEngine.syncQueuedData(API_URL, () => authStorage.getToken());
+          const updatedQ = await offlineSyncEngine.getQueuedCount();
+          setQueuedSyncCount(updatedQ.total);
+          if (res.syncedCount > 0) {
+            setSyncFeedbackMessage(`Synced ${res.syncedCount} offline record(s) to cloud`);
+            setTimeout(() => setSyncFeedbackMessage(''), 4000);
+            if (user?.id) {
+              const sessionsRes = await fetch(`${API_URL}/api/sessions/patient/${user.id}`);
+              if (sessionsRes.ok) {
+                const sessionsData = await sessionsRes.json();
+                setSessions(sessionsData);
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('Sync attempt failed:', err);
+        } finally {
+          setIsSyncing(false);
+        }
+      }
+    };
+
+    window.addEventListener('online', handleOnlineStatus);
+    window.addEventListener('offline', handleOnlineStatus);
+    handleOnlineStatus();
+
+    return () => {
+      window.removeEventListener('online', handleOnlineStatus);
+      window.removeEventListener('offline', handleOnlineStatus);
+    };
+  }, [user]);
+
+  // Manual trigger for user to force sync queued offline items
+  const triggerManualSync = async () => {
+    if (!navigator.onLine) {
+      alert('Device is currently offline. Will automatically sync when connection returns.');
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      const res = await offlineSyncEngine.syncQueuedData(API_URL, () => authStorage.getToken());
+      const q = await offlineSyncEngine.getQueuedCount();
+      setQueuedSyncCount(q.total);
+      if (res.syncedCount > 0) {
+        alert(`✅ Successfully synced ${res.syncedCount} offline record(s) to cloud!`);
+        if (user?.id) {
+          const sessionsRes = await fetch(`${API_URL}/api/sessions/patient/${user.id}`);
+          if (sessionsRes.ok) {
+            const sessionsData = await sessionsRes.json();
+            setSessions(sessionsData);
+          }
+        }
+      } else {
+        alert('All local metrics are already in sync with the cloud.');
+      }
+    } catch (err) {
+      alert('Sync error: ' + err.message);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  // Atomic backend progress increment (with offline fallback & IndexedDB queue)
   const handleIncrementDailyProgress = async ({ assignmentId, exerciseName, repsCount = 1, attempts = 1, maxAngle = 0, formAccuracy = 100 }) => {
     if (!user?.id || isIncrementingRef.current) return;
     isIncrementingRef.current = true;
+    const asgnId = assignmentId || currentExercise?.assignmentId;
+    const exName = exerciseName || currentExercise?.name;
+
+    const progressPayload = {
+      patientId: user.id,
+      assignmentId: asgnId,
+      exerciseName: exName,
+      repsCompleted: repsCount,
+      attempts: attempts,
+      maxAngle: maxAngle,
+      formAccuracy: formAccuracy,
+      gamePlayed: gameMode
+    };
+
     try {
+      if (!navigator.onLine) {
+        throw new Error('Offline');
+      }
+
       const res = await fetch(`${API_URL}/api/daily-progress/increment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          patientId: user.id,
-          assignmentId: assignmentId || currentExercise?.assignmentId,
-          exerciseName: exerciseName || currentExercise?.name,
-          repsCompleted: repsCount,
-          attempts: attempts,
-          maxAngle: maxAngle,
-          formAccuracy: formAccuracy,
-          gamePlayed: gameMode
-        })
+        body: JSON.stringify(progressPayload)
       });
       if (res.ok) {
         const data = await res.json();
-        // Update local routine
         setTodayRoutine(prev => prev.map(item => {
           if (item.assignmentId === data.progress.assignmentId || item.exerciseName === data.progress.exerciseName) {
             return {
@@ -504,37 +599,71 @@ export default function PatientView() {
           setIsCompletedForToday(true);
           speakText("Congratulations! Daily target completed for this exercise!");
         }
+      } else {
+        throw new Error('API server error');
       }
     } catch (err) {
-      console.warn("Failed to persist incremental progress:", err);
+      // Offline fallback: Queue progress locally in IndexedDB
+      await offlineSyncEngine.queueDailyProgress(progressPayload);
+      const q = await offlineSyncEngine.getQueuedCount();
+      setQueuedSyncCount(q.total);
+
+      // Locally update daily routine UI so training continues seamlessly
+      setTodayRoutine(prev => prev.map(item => {
+        if (item.assignmentId === asgnId || item.exerciseName === exName) {
+          const newCompleted = (item.completedWork || 0) + repsCount;
+          const isDone = newCompleted >= (item.targetDailyWork || 15);
+          return {
+            ...item,
+            completedWork: newCompleted,
+            remainingWork: Math.max(0, (item.targetDailyWork || 15) - newCompleted),
+            isCompleted: isDone
+          };
+        }
+        return item;
+      }));
     } finally {
       isIncrementingRef.current = false;
     }
   };
 
-  // Submit Discomfort & Early Stop Report
+  // Submit Discomfort & Early Stop Report (with offline queueing)
   const handleSubmitDiscomfortReport = async (reportData) => {
     if (!user?.id) return;
+    const reportPayload = {
+      patientId: user.id,
+      assignmentId: reportData.assignmentId || currentExercise?.assignmentId,
+      discomfortLevel: reportData.discomfortLevel,
+      notes: reportData.notes,
+      stoppedEarly: reportData.stoppedEarly
+    };
+
     try {
+      if (!navigator.onLine) {
+        throw new Error('Offline');
+      }
       const res = await fetch(`${API_URL}/api/daily-progress/report-discomfort`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          patientId: user.id,
-          assignmentId: reportData.assignmentId || currentExercise?.assignmentId,
-          discomfortLevel: reportData.discomfortLevel,
-          notes: reportData.notes,
-          stoppedEarly: reportData.stoppedEarly
-        })
+        body: JSON.stringify(reportPayload)
       });
       if (res.ok) {
         alert("✅ Discomfort report logged. Your physiotherapist has been notified.");
         if (reportData.stoppedEarly) {
           setMode('dashboard');
         }
+      } else {
+        throw new Error('API error');
       }
     } catch (err) {
-      alert("Failed to submit report: " + err.message);
+      // Offline fallback
+      await offlineSyncEngine.queueDiscomfortReport(reportPayload);
+      const q = await offlineSyncEngine.getQueuedCount();
+      setQueuedSyncCount(q.total);
+      alert("✅ Discomfort report recorded locally (Offline Mode). It will sync to your doctor when connection returns.");
+      if (reportData.stoppedEarly) {
+        setMode('dashboard');
+      }
     }
   };
 
@@ -556,80 +685,129 @@ export default function PatientView() {
     laneWidth: 160
   });
 
-  // TTS Speech Synthesizer
+  const { language, t, getExerciseInfo } = useLanguage();
+
+  // Comprehensive phrase mapper for Hindi Web Speech API voice coaching
+  const translateSpeechText = (text) => {
+    if (language !== 'hi' || !text) return text;
+    const lower = text.toLowerCase();
+    if (lower.includes('congratulations') || lower.includes('daily target completed')) return 'बधाई हो! आज का दैनिक लक्ष्य पूरा हुआ!';
+    if (lower.includes('reach target') || lower.includes('bend further') || lower.includes('flex further') || lower.includes('more angle')) return 'लक्ष्य कोण तक पहुँचने के लिए और झुकें';
+    if (lower.includes('hold for 10') || lower.includes('10 sec') || lower.includes('10 second')) return '10 सेकंड रोकें';
+    if (lower.includes('hold') || lower.includes('holding')) return 'स्थिति बनाए रखें...';
+    if (lower.includes('great job') || lower.includes('excellent') || lower.includes('good job') || lower.includes('well done')) return 'बहुत बढ़िया! अच्छा प्रदर्शन!';
+    if (lower.includes('keep going') || lower.includes('keep it up')) return 'लगे रहें, बहुत अच्छा!';
+    if (lower.includes('rep') || lower.includes('repetition')) return 'रेप पूरा हुआ!';
+    if (lower.includes('straighten') || lower.includes('spine') || lower.includes('back straight')) return 'मुद्रा सीधी रखें और संतुलन बनाए रखें।';
+    if (lower.includes('posture') || lower.includes('align')) return 'अपनी मुद्रा पर ध्यान दें।';
+    if (lower.includes('slow down') || lower.includes('smooth') || lower.includes('control')) return 'धीमी गति से और नियंत्रित आंदोलन करें।';
+    if (lower.includes('stop') || lower.includes('pain') || lower.includes('discomfort')) return 'यदि दर्द हो तो व्यायाम रोक दें।';
+    return text;
+  };
+
+  // TTS Speech Synthesizer with Hindi and English voice engine support
   const speakText = (text) => {
-    if (isMuted) return;
+    if (isMuted || !window.speechSynthesis) return;
     const now = Date.now();
     if (now - lastSpokenRef.current < 2000) return;
 
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.05;
+    const spokenText = translateSpeechText(text);
+    const utterance = new SpeechSynthesisUtterance(spokenText);
+    utterance.rate = 1.0;
+    if (language === 'hi') {
+      utterance.lang = 'hi-IN';
+    } else {
+      utterance.lang = 'en-US';
+    }
     window.speechSynthesis.speak(utterance);
     lastSpokenRef.current = now;
   };
 
   const speakPostureAlert = (text) => {
-    if (isMuted) return;
+    if (isMuted || !window.speechSynthesis) return;
     const now = Date.now();
     if (now - lastPostureSpokenRef.current < 4500) return;
 
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.rate = 1.0;
+    const spokenText = translateSpeechText(text);
+    const utterance = new SpeechSynthesisUtterance(spokenText);
+    utterance.rate = 0.95;
+    if (language === 'hi') {
+      utterance.lang = 'hi-IN';
+    } else {
+      utterance.lang = 'en-US';
+    }
     window.speechSynthesis.speak(utterance);
     lastPostureSpokenRef.current = now;
   };
 
+
   // 1. Fetch User Profile, Doctor Prescriptions, Daily Progress and Workout Sessions
   useEffect(() => {
-    const storedUser = JSON.parse(localStorage.getItem('user'));
+    const storedUser = authStorage.getUser();
     if (!storedUser || storedUser.role !== 'patient') {
-      navigate('/');
+      navigate('/auth');
       return;
     }
     setUser(storedUser);
 
     const loadExerciseData = async () => {
       try {
-        const token = localStorage.getItem('token') || storedUser.token;
+        const token = authStorage.getToken() || storedUser.token;
         const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
 
         // 1. Fetch Daily Progress & Today's Scheduled Routine
-        const dailyRes = await fetch(`${API_URL}/api/daily-progress/patient/${storedUser.id}`, {
-          headers: authHeaders
-        });
-        let scheduledRoutine = [];
-        if (dailyRes.ok) {
-          const dailyData = await dailyRes.json();
-          scheduledRoutine = dailyData.routine || [];
-          setTodayRoutine(scheduledRoutine);
-          setCalendarStatuses(dailyData.calendarStatuses || {});
-          if (dailyData.doctorPrescription) {
-            setDoctorPrescriptionMeta(dailyData.doctorPrescription);
+        const todayDateStr = new Date().toISOString().split('T')[0];
+        let dailyData = null;
+        try {
+          const dailyRes = await fetch(`${API_URL}/api/daily-progress/patient/${storedUser.id}`, {
+            headers: authHeaders
+          });
+          if (dailyRes.ok) {
+            dailyData = await dailyRes.json();
+            await offlineSyncEngine.cacheDailyRoutine(storedUser.id, todayDateStr, dailyData);
           }
+        } catch {
+          // Offline fallback
+          dailyData = await offlineSyncEngine.getCachedDailyRoutine(storedUser.id, todayDateStr);
+        }
+
+        let scheduledRoutine = dailyData?.routine || [];
+        setTodayRoutine(scheduledRoutine);
+        setCalendarStatuses(dailyData?.calendarStatuses || {});
+        if (dailyData?.doctorPrescription) {
+          setDoctorPrescriptionMeta(dailyData.doctorPrescription);
         }
 
         // 2. Fetch Doctor Prescription
-        const prescrRes = await fetch(`${API_URL}/api/prescriptions/patient/${storedUser.id}`, {
-          headers: authHeaders
-        });
+        let prescrData = null;
+        try {
+          const prescrRes = await fetch(`${API_URL}/api/prescriptions/patient/${storedUser.id}`, {
+            headers: authHeaders
+          });
+          if (prescrRes.ok) {
+            prescrData = await prescrRes.json();
+            await offlineSyncEngine.cachePrescription(storedUser.id, prescrData);
+          }
+        } catch {
+          // Offline fallback
+          prescrData = await offlineSyncEngine.getCachedPrescription(storedUser.id);
+        }
+
         let prescribedExList = [];
-        if (prescrRes.ok) {
-          const prescrData = await prescrRes.json();
-          if (prescrData && prescrData.exercises && prescrData.exercises.length > 0) {
-            prescribedExList = prescrData.exercises;
-          }
-          if (prescrData) {
-            setDoctorPrescriptionMeta({
-              diagnosis: prescrData.diagnosis,
-              pathology: prescrData.pathology,
-              restrictions: prescrData.restrictions,
-              precautions: prescrData.precautions,
-              clinicalGoals: prescrData.clinicalGoals,
-              status: prescrData.status
-            });
-          }
+        if (prescrData && prescrData.exercises && prescrData.exercises.length > 0) {
+          prescribedExList = prescrData.exercises;
+        }
+        if (prescrData) {
+          setDoctorPrescriptionMeta({
+            diagnosis: prescrData.diagnosis,
+            pathology: prescrData.pathology,
+            restrictions: prescrData.restrictions,
+            precautions: prescrData.precautions,
+            clinicalGoals: prescrData.clinicalGoals,
+            status: prescrData.status
+          });
         }
 
         // 3. Merge scheduledRoutine + prescribedExList + Defaults
@@ -724,7 +902,7 @@ export default function PatientView() {
             success_angle: succ,
             failure_angle: fail,
             successAngle: succ,
-            failureAngle: fail,
+            failure_angle: fail,
             holdTime: ex.holdTime || 0,
             targetReps: ex.targetReps || 15,
             targetDailyWork: ex.targetDailyWork,
@@ -752,10 +930,14 @@ export default function PatientView() {
         }
 
         // 4. Fetch session logs
-        const sessionsRes = await fetch(`${API_URL}/api/sessions/patient/${storedUser.id}`);
-        if (sessionsRes.ok) {
-          const sessionsData = await sessionsRes.json();
-          setSessions(sessionsData);
+        try {
+          const sessionsRes = await fetch(`${API_URL}/api/sessions/patient/${storedUser.id}`);
+          if (sessionsRes.ok) {
+            const sessionsData = await sessionsRes.json();
+            setSessions(sessionsData);
+          }
+        } catch {
+          console.warn('Cannot fetch cloud sessions while offline');
         }
       } catch (err) {
         console.error("Failed to load exercises:", err);
@@ -764,24 +946,47 @@ export default function PatientView() {
     loadExerciseData();
   }, [navigate]);
 
-  // 2. Camera Processing & Canvas Gaming loop (Activated during 'scanner')
+  // 2. Camera Processing & Canvas Gaming loop (Activated ONLY during active exercise 'scanner' mode)
   useEffect(() => {
-    if (mode !== 'scanner' || !isLoaded || !currentExercise) return;
+    if (mode !== 'scanner' || !isLoaded || !currentExercise) {
+      if (videoRef.current && videoRef.current.srcObject) {
+        try {
+          const stream = videoRef.current.srcObject;
+          stream.getTracks().forEach(track => track.stop());
+          videoRef.current.srcObject = null;
+        } catch (e) {
+          console.warn("Camera track stop error:", e);
+        }
+      }
+      setCameraActive(false);
+      return;
+    }
 
     let animationFrameId;
+    let localStream = null;
+    let isCancelled = false;
+
     const startCamera = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+        if (isCancelled) {
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
+        localStream = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           videoRef.current.onloadedmetadata = () => {
+            if (isCancelled) return;
             videoRef.current.play();
             setCameraActive(true);
           };
         }
       } catch (err) {
-        alert("Webcam stream access is required for AI gaming tracker.");
-        setMode('dashboard');
+        if (!isCancelled) {
+          alert("Webcam stream access is required for AI gaming tracker.");
+          setMode('dashboard');
+        }
       }
     };
 
@@ -1087,15 +1292,27 @@ export default function PatientView() {
       window.addEventListener('touchend', handleUp);
     }
 
-    if (cameraActive) renderLoop();
+    renderLoop();
 
     return () => {
+      isCancelled = true;
       cancelAnimationFrame(animationFrameId);
-      // Only stop webcam tracks if camera is turned off or leaving scanner page
-      if (videoRef.current && videoRef.current.srcObject && (!cameraActive || mode !== 'scanner')) {
-        videoRef.current.srcObject.getTracks().forEach(track => track.stop());
-        videoRef.current.srcObject = null;
+      if (localStream) {
+        try {
+          localStream.getTracks().forEach(track => track.stop());
+        } catch (e) {
+          console.warn("Local stream stop error:", e);
+        }
       }
+      if (videoRef.current && videoRef.current.srcObject) {
+        try {
+          videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+          videoRef.current.srcObject = null;
+        } catch (e) {
+          console.warn("videoRef stream stop error:", e);
+        }
+      }
+      setCameraActive(false);
       if (canvas) {
         canvas.removeEventListener('mousedown', handleDown);
         canvas.removeEventListener('touchstart', handleTouchStart);
@@ -1105,7 +1322,7 @@ export default function PatientView() {
       window.removeEventListener('touchmove', handleTouchMove);
       window.removeEventListener('touchend', handleUp);
     };
-  }, [mode, cameraActive, poseLandmarker, currentExercise, isLoaded, gameMode, isMuted]);
+  }, [mode, currentExercise, isLoaded, gameMode, isMuted, selectedArm]);
 
   // 3. Save Workout Session to Backend
   const handleSaveSession = async () => {
@@ -1149,47 +1366,64 @@ export default function PatientView() {
         ? Math.min(100, Math.round((validReps / currentExercise.targetReps) * 100))
         : 100;
 
-      const response = await fetch(`${API_URL}/api/sessions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          patientId: user.id,
-          exerciseName: currentExercise.name,
-          reps_completed: validReps,
-          max_angle_achieved: romMax,
-          gamePlayed: modeNames[gameMode],
-          hold_time_achieved: currentExercise.holdTime || 0,
-          success_rate: successRateCalc,
-          rom_max: romMax,
-          rom_min: romMin,
-          rom_average: romAvg,
-          valid_reps: validReps,
-          invalid_reps: invalidReps,
-          form_violations_count: formViolationsCount,
-          form_violations: formViolations,
-          consistency_score: consistencyScore,
-          completion_percentage: completionPct,
-          baseline_rom: personalBaselineRom || currentExercise.success_angle
-        })
-      });
-      if (response.ok) {
-        alert("✅ Session details successfully recorded for your doctor's review!");
+      const sessionPayload = {
+        patientId: user.id,
+        assignmentId: currentExercise.assignmentId || null,
+        exerciseName: currentExercise.name,
+        reps_completed: validReps,
+        max_angle_achieved: romMax,
+        gamePlayed: modeNames[gameMode],
+        hold_time_achieved: currentExercise.holdTime || 0,
+        success_rate: successRateCalc,
+        rom_max: romMax,
+        rom_min: romMin,
+        rom_average: romAvg,
+        valid_reps: validReps,
+        invalid_reps: invalidReps,
+        form_violations_count: formViolationsCount,
+        form_violations: formViolations,
+        consistency_score: consistencyScore,
+        completion_percentage: completionPct,
+        baseline_rom: personalBaselineRom || currentExercise.success_angle,
+        date: new Date().toISOString()
+      };
 
-        // Refresh session logs to update stats instantly
-        const sessionsRes = await fetch(`${API_URL}/api/sessions/patient/${user.id}`);
-        if (sessionsRes.ok) {
-          const sessionsData = await sessionsRes.json();
-          setSessions(sessionsData);
+      try {
+        if (!navigator.onLine) {
+          throw new Error('Offline');
         }
 
+        const response = await fetch(`${API_URL}/api/sessions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(sessionPayload)
+        });
+
+        if (response.ok) {
+          const savedData = await response.json();
+          alert("✅ Session details successfully recorded for your doctor's review!");
+          setSessions(prev => [savedData, ...prev]);
+
+          setMode('dashboard');
+          setReps(0);
+          repsRef.current = 0;
+        } else {
+          throw new Error("API responded with error code.");
+        }
+      } catch (err) {
+        // Offline Fallback: Store session in IndexedDB
+        await offlineSyncEngine.queueSession(sessionPayload);
+        const q = await offlineSyncEngine.getQueuedCount();
+        setQueuedSyncCount(q.total);
+        setSessions(prev => [sessionPayload, ...prev]);
+
+        alert("💾 Session securely saved locally (Offline Mode). All reps, ROM, and form scores are queued in IndexedDB and will automatically sync once your connection is restored.");
         setMode('dashboard');
         setReps(0);
         repsRef.current = 0;
-      } else {
-        throw new Error("API responded with error code.");
       }
     } catch (err) {
-      alert("Error saving workout log: " + err.message);
+      alert("Error finalizing session: " + err.message);
     }
   };
 
@@ -1327,16 +1561,45 @@ export default function PatientView() {
             <div>
               <div className="flex items-center gap-3">
                 <span className="text-[10px] font-black text-teal-700 bg-teal-50 border border-teal-200 px-3 py-1 rounded-full uppercase tracking-widest">
-                  Level {currentLevel} {totalXP > 500 ? 'Expert' : 'Rookie'}
+                  {t('level')} {currentLevel} {totalXP > 500 ? t('expert') : t('rookie')}
                 </span>
-                <span className="text-xs text-slate-500 font-semibold">({totalXP} Total XP)</span>
+                <span className="text-xs text-slate-500 font-semibold">({totalXP} {t('totalXPText')})</span>
               </div>
-              <h1 className="text-3xl font-black text-slate-900 mt-2">Welcome back, {user.name}</h1>
-              <p className="text-slate-500 mt-1">Focus Area: <span className="font-semibold text-teal-600 capitalize">{user.focusArea?.replace('_', ' ')}</span></p>
+              <h1 className="text-3xl font-black text-slate-900 mt-2">{t('welcomeBack')}, {user.name}</h1>
+              <p className="text-slate-500 mt-1">{t('focusAreaLabel')}: <span className="font-semibold text-teal-600 capitalize">{user.focusArea?.replace('_', ' ')}</span></p>
             </div>
 
-            {/* Mute Voice Feedback buttons */}
-            <div className="flex items-center gap-3">
+            {/* Offline Sync & Mute Voice Feedback buttons */}
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Connection & Offline Queue Badge */}
+              <div className={`px-3.5 py-2 rounded-xl text-xs font-bold border flex items-center gap-2 ${
+                !isOnline 
+                  ? 'bg-amber-50 text-amber-800 border-amber-300' 
+                  : queuedSyncCount > 0 
+                    ? 'bg-sky-50 text-sky-800 border-sky-300'
+                    : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${
+                  !isOnline ? 'bg-amber-500 animate-pulse' : queuedSyncCount > 0 ? 'bg-sky-500' : 'bg-emerald-500'
+                }`} />
+                <span>
+                  {!isOnline 
+                    ? `Offline Mode (${queuedSyncCount} queued)` 
+                    : queuedSyncCount > 0 
+                      ? `${queuedSyncCount} pending sync` 
+                      : 'Cloud Connected'}
+                </span>
+                {queuedSyncCount > 0 && isOnline && (
+                  <button
+                    onClick={triggerManualSync}
+                    disabled={isSyncing}
+                    className="ml-1 text-[10px] bg-sky-600 hover:bg-sky-700 text-white px-2 py-0.5 rounded-lg font-black transition-colors"
+                  >
+                    {isSyncing ? 'Syncing...' : 'Sync Now'}
+                  </button>
+                )}
+              </div>
+
               <button
                 onClick={() => setIsMuted(!isMuted)}
                 className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all border flex items-center gap-2 ${isMuted
@@ -1344,7 +1607,7 @@ export default function PatientView() {
                     : 'bg-teal-50 text-teal-700 border-teal-200'
                   }`}
               >
-                {isMuted ? '🔇 Voice Coach Off' : '🔊 Voice Coach On'}
+                {isMuted ? t('voiceCoachOff') : t('voiceCoachOn')}
               </button>
             </div>
           </div>
@@ -1358,7 +1621,7 @@ export default function PatientView() {
                   : 'text-slate-600 hover:text-slate-905 hover:bg-slate-200/60'
                 }`}
             >
-              🏠 Overview
+              🏠 {t('tabOverview')}
             </button>
             <button
               onClick={() => setActiveTab('workout')}
@@ -1367,7 +1630,7 @@ export default function PatientView() {
                   : 'text-slate-600 hover:text-slate-905 hover:bg-slate-200/60'
                 }`}
             >
-              🏋️‍♂️ Workout Hub
+              🏋️‍♂️ {t('tabWorkout')}
             </button>
             <button
               onClick={() => setActiveTab('stats')}
@@ -1376,7 +1639,7 @@ export default function PatientView() {
                   : 'text-slate-600 hover:text-slate-905 hover:bg-slate-200/60'
                 }`}
             >
-              📊 Stats & Achievements
+              📊 {t('tabStats')}
             </button>
             <button
               onClick={() => setActiveTab('quests')}
@@ -1385,7 +1648,7 @@ export default function PatientView() {
                   : 'text-slate-600 hover:text-slate-905 hover:bg-slate-200/60'
                 }`}
             >
-              🏆 Quest & Leaderboard
+              🏆 {t('tabQuests')}
             </button>
           </div>
 
@@ -1400,8 +1663,8 @@ export default function PatientView() {
                     <div className="flex items-center gap-2.5">
                       <span className="w-8 h-8 rounded-xl bg-teal-600 text-white flex items-center justify-center font-bold text-sm">🩺</span>
                       <div>
-                        <h3 className="text-sm font-black text-slate-900">Doctor's Medical Prescription & Safety Directives</h3>
-                        <p className="text-[10px] text-slate-500">Established by attending physician • Calibrated & verified by your Physiotherapist</p>
+                        <h3 className="text-sm font-black text-slate-900">{t('doctorPrescriptionTitle')}</h3>
+                        <p className="text-[10px] text-slate-500">{t('doctorPrescriptionSub')}</p>
                       </div>
                     </div>
                     <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase border ${
@@ -1409,28 +1672,28 @@ export default function PatientView() {
                         ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                         : 'bg-amber-100 text-amber-800 border-amber-300'
                     }`}>
-                      {doctorPrescriptionMeta.status === 'Verified by Physio' ? '✓ Verified by Physio' : '⏳ In Physio Calibration'}
+                      {doctorPrescriptionMeta.status === 'Verified by Physio' ? t('verifiedByPhysio') : t('inPhysioCalibration')}
                     </span>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
                     <div className="bg-white/90 p-3.5 rounded-2xl border border-slate-200/80">
-                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">Primary Diagnosis</span>
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest block mb-1">{t('primaryDiagnosis')}</span>
                       <span className="font-extrabold text-slate-900 block text-xs">{doctorPrescriptionMeta.diagnosis || 'Post-injury rehabilitation program'}</span>
                     </div>
 
                     <div className="bg-white/90 p-3.5 rounded-2xl border border-slate-200/80">
-                      <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest block mb-1">Movement Restrictions</span>
+                      <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest block mb-1">{t('movementRestrictions')}</span>
                       <span className="font-bold text-rose-700 block text-xs">{doctorPrescriptionMeta.restrictions || 'Avoid ballistic loads'}</span>
                     </div>
 
                     <div className="bg-white/90 p-3.5 rounded-2xl border border-slate-200/80">
-                      <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest block mb-1">Safety Precautions</span>
+                      <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest block mb-1">{t('safetyPrecautions')}</span>
                       <span className="font-bold text-amber-800 block text-xs">{doctorPrescriptionMeta.precautions || 'Stop if pain exceeds 4/10 VAS'}</span>
                     </div>
 
                     <div className="bg-white/90 p-3.5 rounded-2xl border border-slate-200/80">
-                      <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest block mb-1">Clinical Goals</span>
+                      <span className="text-[9px] font-black text-indigo-500 uppercase tracking-widest block mb-1">{language === 'hi' ? 'नैदानिक ​​लक्ष्य' : 'Clinical Goals'}</span>
                       <span className="font-bold text-indigo-800 block text-xs">{doctorPrescriptionMeta.clinicalGoals || 'Joint stability & full ROM recovery'}</span>
                     </div>
                   </div>
@@ -1574,11 +1837,11 @@ export default function PatientView() {
                 <div className="lg:col-span-4 space-y-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
                   <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                     <div>
-                      <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">Today's Exercises</h3>
-                      <p className="text-[10px] text-slate-400">Physiotherapist weekly allowance</p>
+                      <h3 className="text-xs font-black text-slate-900 uppercase tracking-widest">{language === 'hi' ? 'आज का व्यायाम' : "Today's Exercises"}</h3>
+                      <p className="text-[10px] text-slate-400">{language === 'hi' ? 'फिजियोथेरेपिस्ट साप्ताहिक लक्ष्य' : 'Physiotherapist weekly allowance'}</p>
                     </div>
                     <span className="text-[10px] font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-full border border-teal-200">
-                      {todayRoutine.length > 0 ? `${todayRoutine.filter(r => r.isCompleted).length}/${todayRoutine.length} Done` : 'Active'}
+                      {todayRoutine.length > 0 ? `${todayRoutine.filter(r => r.isCompleted).length}/${todayRoutine.length} ${language === 'hi' ? 'पूर्ण' : 'Done'}` : (language === 'hi' ? 'सक्रिय' : 'Active')}
                     </span>
                   </div>
 
@@ -1586,6 +1849,7 @@ export default function PatientView() {
                     <div className="space-y-4">
                       {(todayRoutine.length > 0 ? todayRoutine : doctorPrescribed).map((item, pIdx) => {
                         const exName = item.exerciseName || item.name;
+                        const translatedExName = getExerciseInfo(exName, 'name') || exName;
                         const targetWork = item.targetDailyWork || item.targetReps || 15;
                         const completedWork = item.completedWork || 0;
                         const isDone = item.isCompleted || (completedWork >= targetWork);
@@ -1604,10 +1868,14 @@ export default function PatientView() {
                               <div>
                                 <div className="flex items-center gap-1.5">
                                   <span className={`w-2 h-2 rounded-full ${isDone ? 'bg-emerald-500' : 'bg-teal-500'}`}></span>
-                                  <span className="font-black text-slate-900 text-sm block">{exName}</span>
+                                  <span className="font-black text-slate-900 text-sm block">{translatedExName}</span>
                                 </div>
                                 <span className="text-[10px] text-slate-500 font-medium block mt-0.5">
-                                  {item.sets ? `${item.sets} sets × ${item.repsOrHold || 15} ${item.targetType === 'hold_seconds' ? 's hold' : 'reps'} × ${item.sessionsPerDay || 1}/day` : `Target: ${targetWork} reps`}
+                                  {item.sets 
+                                    ? (language === 'hi' 
+                                        ? `${item.sets} सेट × ${item.repsOrHold || 15} ${item.targetType === 'hold_seconds' ? 'सेकंड रोकें' : 'रेप्स'} × ${item.sessionsPerDay || 1}/दिन` 
+                                        : `${item.sets} sets × ${item.repsOrHold || 15} ${item.targetType === 'hold_seconds' ? 's hold' : 'reps'} × ${item.sessionsPerDay || 1}/day`)
+                                    : (language === 'hi' ? `लक्ष्य: ${targetWork} रेप्स` : `Target: ${targetWork} reps`)}
                                 </span>
                               </div>
 
@@ -1617,7 +1885,7 @@ export default function PatientView() {
                                 className="px-2 py-1 rounded-lg bg-white hover:bg-teal-50 text-teal-700 font-bold text-[10px] border border-slate-200 hover:border-teal-300 flex items-center gap-1 transition-all shadow-2xs"
                                 title="Watch Clinical Tutorial"
                               >
-                                🎬 Tutorial
+                                🎬 {language === 'hi' ? 'ट्यूटोरियल' : 'Tutorial'}
                               </button>
                             </div>
 
@@ -1625,10 +1893,10 @@ export default function PatientView() {
                             <div className="space-y-1">
                               <div className="flex justify-between text-[10px] font-bold">
                                 <span className={isDone ? 'text-emerald-700' : 'text-slate-500'}>
-                                  {isDone ? '✓ Daily Target Fulfilled' : 'Daily Progress'}
+                                  {isDone ? (language === 'hi' ? '✓ दैनिक लक्ष्य पूर्ण' : '✓ Daily Target Fulfilled') : (language === 'hi' ? 'दैनिक प्रगति' : 'Daily Progress')}
                                 </span>
                                 <span className="font-mono text-slate-700">
-                                  {completedWork} / {targetWork} {item.targetType === 'hold_seconds' ? 'sec' : 'reps'} ({pct}%)
+                                  {completedWork} / {targetWork} {item.targetType === 'hold_seconds' ? (language === 'hi' ? 'सेकंड' : 'sec') : (language === 'hi' ? 'रेप्स' : 'reps')} ({pct}%)
                                 </span>
                               </div>
                               <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
@@ -1643,7 +1911,7 @@ export default function PatientView() {
                             {isDone ? (
                               <div className="w-full py-2 bg-emerald-100/70 border border-emerald-300 text-emerald-800 font-black rounded-xl text-xs text-center flex items-center justify-center gap-1.5 shadow-2xs">
                                 <span>✓</span>
-                                <span>Completed for today</span>
+                                <span>{language === 'hi' ? 'आज के लिए पूर्ण' : 'Completed for today'}</span>
                               </div>
                             ) : (
                               <button
@@ -1667,8 +1935,16 @@ export default function PatientView() {
                                 }}
                                 className="w-full bg-teal-600 hover:bg-teal-700 text-white font-extrabold py-2.5 rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 shadow-md shadow-teal-600/10 cursor-pointer"
                               >
-                                <span>{completedWork > 0 ? '▶️ Resume Routine' : '🏋️‍♂️ Start Workout'}</span>
-                                {completedWork > 0 && <span className="text-[10px] opacity-80">({targetWork - completedWork} remaining)</span>}
+                                <span>
+                                  {completedWork > 0 
+                                    ? (language === 'hi' ? '▶️ फिर से शुरू करें' : '▶️ Resume Routine') 
+                                    : (language === 'hi' ? '🏋️‍♂️ व्यायाम शुरू करें' : '🏋️‍♂️ Start Workout')}
+                                </span>
+                                {completedWork > 0 && (
+                                  <span className="text-[10px] opacity-80">
+                                    ({targetWork - completedWork} {language === 'hi' ? 'शेष' : 'remaining'})
+                                  </span>
+                                )}
                               </button>
                             )}
                           </div>

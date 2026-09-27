@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { API_URL } from '../config';
 import ExerciseTutorialModal from '../components/ExerciseTutorialModal';
+import { useLanguage } from '../context/LanguageContext';
+
 
 const FALLBACK_EXERCISES = [
   { name: 'Bicep Curl (Standing)', target_joints: [11, 13, 15], success_angle: 85, failure_angle: 150 },
@@ -166,6 +168,7 @@ export default function Library() {
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [selectedTutorialEx, setSelectedTutorialEx] = useState(null);
+  const { language, t, getExerciseInfo } = useLanguage();
 
   useEffect(() => {
     const fetchExercises = async () => {
@@ -186,13 +189,20 @@ export default function Library() {
 
   // Filter and Search exercises
   const filteredExercises = exercises.filter(ex => {
-    const matchesSearch = ex.name.toLowerCase().includes(search.toLowerCase());
+    const translatedName = getExerciseInfo(ex.name, 'name') || ex.name;
+    const matchesSearch = ex.name.toLowerCase().includes(search.toLowerCase()) || translatedName.toLowerCase().includes(search.toLowerCase());
     const category = getTargetArea(ex.target_joints);
     const matchesCategory = activeCategory === 'All' || category === activeCategory;
     return matchesSearch && matchesCategory;
   });
 
-  const categories = ['All', 'Upper Body', 'Lower Body', 'Core & Balance', 'Full Body'];
+  const categories = [
+    { key: 'All', labelEn: 'All', labelHi: 'सभी' },
+    { key: 'Upper Body', labelEn: 'Upper Body', labelHi: 'ऊपरी शरीर' },
+    { key: 'Lower Body', labelEn: 'Lower Body', labelHi: 'निचला शरीर' },
+    { key: 'Core & Balance', labelEn: 'Core & Balance', labelHi: 'कोर और संतुलन' },
+    { key: 'Full Body', labelEn: 'Full Body', labelHi: 'पूरा शरीर' }
+  ];
 
   return (
     <div className="min-h-screen bg-slate-50 py-16 px-4 sm:px-6 lg:px-8 text-slate-800">
@@ -200,8 +210,14 @@ export default function Library() {
         
         {/* Header Title Section */}
         <div>
-          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Interactive Exercise Library</h1>
-          <p className="text-slate-500 mt-2">Explore the active rehabilitation exercises supported by our computer vision AI form check models.</p>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight">
+            {language === 'hi' ? 'इंटरैक्टिव व्यायाम लाइब्रेरी' : 'Interactive Exercise Library'}
+          </h1>
+          <p className="text-slate-500 mt-2">
+            {language === 'hi'
+              ? 'हमारे कंप्यूटर विज़न एआई फॉर्म चेक मॉडल द्वारा समर्थित पुनर्वास अभ्यासों का अन्वेषण करें।'
+              : 'Explore the active rehabilitation exercises supported by our computer vision AI form check models.'}
+          </p>
         </div>
 
         {/* Search & Filter Controls */}
@@ -210,7 +226,7 @@ export default function Library() {
           <div className="relative flex-1 max-w-md">
             <input 
               type="text"
-              placeholder="Search exercises..."
+              placeholder={language === 'hi' ? 'व्यायाम खोजें...' : 'Search exercises...'}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-4 pr-10 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 bg-slate-50 text-slate-800 transition-all placeholder-slate-400"
@@ -222,15 +238,15 @@ export default function Library() {
           <div className="flex flex-wrap gap-1.5">
             {categories.map((cat) => (
               <button
-                key={cat}
-                onClick={() => setActiveCategory(cat)}
+                key={cat.key}
+                onClick={() => setActiveCategory(cat.key)}
                 className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                  activeCategory === cat
+                  activeCategory === cat.key
                     ? 'bg-teal-600 text-white shadow-sm shadow-teal-600/20'
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
                 }`}
               >
-                {cat}
+                {language === 'hi' ? cat.labelHi : cat.labelEn}
               </button>
             ))}
           </div>
@@ -243,6 +259,18 @@ export default function Library() {
             const isHoldType = ex.name.toLowerCase().includes('balance') || ex.name.toLowerCase().includes('dog') || ex.name.toLowerCase().includes('hold');
             const unit = isHoldType ? 's' : '°';
 
+            const displayName = getExerciseInfo(ex.name, 'name') || ex.name;
+            const ref = EXERCISE_REFS[ex.name] || {
+              joints: 'General Body',
+              desc: 'Standard clinical range of motion rehabilitation.',
+              guidance: 'Position yourself clearly in the camera frame.',
+              tip: 'Follow the live audio coach feedback.'
+            };
+
+            const displayJoints = getExerciseInfo(ex.name, 'joints') || ref.joints;
+            const displayGuidance = getExerciseInfo(ex.name, 'guidance') || ref.guidance;
+            const displayTip = getExerciseInfo(ex.name, 'tip') || ref.tip;
+
             return (
               <div 
                 key={idx}
@@ -250,39 +278,42 @@ export default function Library() {
               >
                 <div>
                   <div className="flex justify-between items-start gap-2">
-                    <h3 className="font-extrabold text-slate-800 text-sm tracking-tight leading-snug">{ex.name}</h3>
+                    <div>
+                      <h3 className="font-extrabold text-slate-800 text-sm tracking-tight leading-snug">{displayName}</h3>
+                      {language === 'hi' && displayName !== ex.name && (
+                        <p className="text-[10px] text-slate-400 font-semibold">{ex.name}</p>
+                      )}
+                    </div>
                     <span className="inline-block text-[8px] font-black text-cyan-700 bg-cyan-50 border border-cyan-200 px-2 py-0.5 rounded-full uppercase tracking-wider shrink-0">
                       AI Tracked
                     </span>
                   </div>
 
-                  <p className="text-[11px] text-slate-500 font-semibold mt-1">Focus Area: <span className="text-teal-600">{area}</span></p>
+                  <p className="text-[11px] text-slate-500 font-semibold mt-1">
+                    {language === 'hi' ? 'फ़ोकस क्षेत्र' : 'Focus Area'}: <span className="text-teal-600">{area}</span>
+                  </p>
                   
                   {/* Anatomical Reference & Execution Guide */}
-                  {(() => {
-                    const ref = EXERCISE_REFS[ex.name] || {
-                      joints: 'General Body',
-                      desc: 'Standard clinical range of motion rehabilitation.',
-                      guidance: 'Position yourself clearly in the camera frame.',
-                      tip: 'Follow the live audio coach feedback.'
-                    };
-                    return (
-                      <div className="mt-3 bg-slate-50 border border-slate-150 rounded-xl p-3 text-[10px] space-y-2 text-slate-600">
-                        <div>
-                          <span className="font-extrabold text-slate-900 block text-[8px] uppercase tracking-wider">Anatomical Target</span>
-                          <span>{ref.joints}</span>
-                        </div>
-                        <div>
-                          <span className="font-extrabold text-slate-900 block text-[8px] uppercase tracking-wider">Execution Guide</span>
-                          <span className="leading-relaxed block">{ref.guidance}</span>
-                        </div>
-                        <div>
-                          <span className="font-extrabold text-slate-900 block text-[8px] uppercase tracking-wider">Coach Pro-Tip</span>
-                          <span className="text-[9px] text-teal-750 italic block">{ref.tip}</span>
-                        </div>
-                      </div>
-                    );
-                  })()}
+                  <div className="mt-3 bg-slate-50 border border-slate-150 rounded-xl p-3 text-[10px] space-y-2 text-slate-600">
+                    <div>
+                      <span className="font-extrabold text-slate-900 block text-[8px] uppercase tracking-wider">
+                        {language === 'hi' ? 'लक्षित जोड़' : 'Anatomical Target'}
+                      </span>
+                      <span>{displayJoints}</span>
+                    </div>
+                    <div>
+                      <span className="font-extrabold text-slate-900 block text-[8px] uppercase tracking-wider">
+                        {language === 'hi' ? 'व्यायाम गाइड' : 'Execution Guide'}
+                      </span>
+                      <span className="leading-relaxed block">{displayGuidance}</span>
+                    </div>
+                    <div>
+                      <span className="font-extrabold text-slate-900 block text-[8px] uppercase tracking-wider">
+                        {language === 'hi' ? 'कोच सुझाव' : 'Coach Pro-Tip'}
+                      </span>
+                      <span className="text-[9px] text-teal-750 italic block">{displayTip}</span>
+                    </div>
+                  </div>
 
                   {ex.target_joints && (
                     <p className="text-[10px] text-slate-400 mt-2.5 font-semibold">
@@ -294,10 +325,10 @@ export default function Library() {
                 <div className="space-y-3 pt-3 mt-4 border-t border-slate-100">
                   <div className="flex flex-wrap gap-2">
                     <div className="text-[9px] font-bold text-teal-700 bg-teal-50/70 border border-teal-150 px-2.5 py-1 rounded-lg">
-                      Success Angle: <span className="font-black">{ex.success_angle}{unit}</span>
+                      {language === 'hi' ? 'सफलता कोण' : 'Success Angle'}: <span className="font-black">{ex.success_angle}{unit}</span>
                     </div>
                     <div className="text-[9px] font-bold text-slate-600 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
-                      Reset Angle: <span className="font-black">{ex.failure_angle}{unit}</span>
+                      {language === 'hi' ? 'रीसेट कोण' : 'Reset Angle'}: <span className="font-black">{ex.failure_angle}{unit}</span>
                     </div>
                   </div>
 
@@ -306,7 +337,7 @@ export default function Library() {
                     onClick={() => setSelectedTutorialEx(ex.name)}
                     className="w-full py-2.5 bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
                   >
-                    <span>🎬 Watch Video Tutorial & Guide</span>
+                    <span>🎬 {language === 'hi' ? 'वीडियो ट्यूटोरियल और गाइड देखें' : 'Watch Video Tutorial & Guide'}</span>
                   </button>
                 </div>
               </div>
@@ -315,7 +346,7 @@ export default function Library() {
 
           {filteredExercises.length === 0 && (
             <div className="col-span-full py-12 text-center text-slate-400 font-bold text-sm bg-white rounded-3xl border border-slate-200 shadow-sm">
-              No matching exercises found in this category.
+              {language === 'hi' ? 'इस श्रेणी में कोई मेल खाने वाला व्यायाम नहीं मिला।' : 'No matching exercises found in this category.'}
             </div>
           )}
         </div>

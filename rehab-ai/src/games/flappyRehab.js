@@ -1,5 +1,6 @@
 export const init = () => ({
   flappyY: 240,
+  smoothedRatio: 0.5,
   flappyScore: 0,
   gamePoints: 0,
   comboCount: 0,
@@ -139,21 +140,42 @@ export const draw = (ctx, canvas, state, params) => {
     });
   }
 
-  // 5. Convert Angle Flexion to Ship Y Position with Smooth Responsiveness
+  // 5. Convert Angle Flexion to Ship Y Position with Smooth Controlled Ascent
   const minAngle = currentExercise?.failure_angle ?? currentExercise?.failureAngle ?? 150;
   const maxAngle = currentExercise?.success_angle ?? currentExercise?.successAngle ?? 85;
   const range = maxAngle - minAngle;
 
-  let ratio = 0.5;
+  let rawRatio = 0.5;
   if (liveAngleVal !== undefined && !isNaN(liveAngleVal) && liveAngleVal > 0) {
-    const rawRatio = range !== 0 ? (liveAngleVal - minAngle) / range : 0.5;
-    ratio = Math.max(0, Math.min(1, rawRatio));
+    const calculated = range !== 0 ? (liveAngleVal - minAngle) / range : 0.5;
+    rawRatio = Math.max(0, Math.min(1, calculated));
+  }
+
+  // Low-pass filter the angle ratio to absorb sudden noise / angle spikes
+  if (state.smoothedRatio === undefined || isNaN(state.smoothedRatio)) {
+    state.smoothedRatio = rawRatio;
+  } else {
+    state.smoothedRatio = state.smoothedRatio * 0.85 + rawRatio * 0.15;
   }
   
-  const targetY = canvas.height - 70 - ratio * (canvas.height - 140);
+  const targetY = canvas.height - 70 - state.smoothedRatio * (canvas.height - 140);
   const deltaY = targetY - state.flappyY;
-  state.flappyY += deltaY * 0.18; // Steady, smooth follow rate
-  state.flyerTilt = Math.max(-0.35, Math.min(0.35, -deltaY * 0.04));
+  const prevY = state.flappyY;
+
+  if (deltaY < 0) {
+    // Coming UP (Flexion / Lift): Controlled, gentle climb rate with max vertical velocity clamp
+    const climbStep = Math.max(deltaY * 0.065, -3.8); // Gentle 6.5% lerp capped at 3.8px/frame
+    state.flappyY += climbStep;
+  } else {
+    // Coming DOWN (Extension / Release): Smooth steady descent
+    const dropStep = Math.min(deltaY * 0.08, 4.2); // Smooth 8% lerp capped at 4.2px/frame
+    state.flappyY += dropStep;
+  }
+
+  // Smooth tilt based on actual movement delta
+  const actualVelocityY = state.flappyY - prevY;
+  const targetTilt = Math.max(-0.35, Math.min(0.35, actualVelocityY * 0.06));
+  state.flyerTilt = (state.flyerTilt || 0) * 0.80 + targetTilt * 0.20;
 
   // Render flyer avatar
   const px = 170;

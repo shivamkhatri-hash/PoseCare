@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { API_URL } from '../config';
 import ExerciseTutorialModal from '../components/ExerciseTutorialModal';
 import AnatomicalJointViewer from '../components/AnatomicalJointViewer';
+import { authStorage } from '../utils/authStorage';
+import { getPatientInjuryMeta } from './DoctorDashboard';
 
 const DAYS_OF_WEEK = [
   { id: 1, label: 'Mon' },
@@ -40,8 +42,8 @@ export default function PhysioDashboard() {
   const [previewTutorialEx, setPreviewTutorialEx] = useState(null);
 
   useEffect(() => {
-    const storedUser = JSON.parse(localStorage.getItem('user'));
-    const token = localStorage.getItem('token');
+    const storedUser = authStorage.getUser();
+    const token = authStorage.getToken();
     if (!storedUser || !token || (storedUser.role !== 'physiotherapist' && storedUser.role !== 'admin')) {
       navigate('/auth');
       return;
@@ -54,7 +56,7 @@ export default function PhysioDashboard() {
 
   const loadPatients = async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = authStorage.getToken();
       const res = await fetch(`${API_URL}/api/users/patients`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -87,7 +89,7 @@ export default function PhysioDashboard() {
     setFeedbackMessage(null);
     setErrorMessage(null);
 
-    const token = localStorage.getItem('token');
+    const token = authStorage.getToken();
 
     // 1. Fetch Doctor's Medical Prescription (Read-Only)
     try {
@@ -209,7 +211,7 @@ export default function PhysioDashboard() {
     setFeedbackMessage(null);
 
     try {
-      const token = localStorage.getItem('token');
+      const token = authStorage.getToken();
       const res = await fetch(`${API_URL}/api/plans`, {
         method: 'POST',
         headers: {
@@ -267,7 +269,7 @@ export default function PhysioDashboard() {
   const handleVerifyPrescriptionOnly = async () => {
     if (!selectedPatient) return;
     try {
-      const token = localStorage.getItem('token');
+      const token = authStorage.getToken();
       const res = await fetch(`${API_URL}/api/prescriptions/patient/${selectedPatient._id}/verify`, {
         method: 'PUT',
         headers: {
@@ -345,12 +347,19 @@ export default function PhysioDashboard() {
                     }`}
                   >
                     <div className="flex items-start justify-between">
-                      <div>
-                        <h3 className="font-extrabold text-slate-900 text-sm">{p.name}</h3>
-                        <p className="text-[11px] text-slate-400 truncate mt-0.5">{p.email}</p>
+                      <div className="flex items-center gap-3">
+                        <div className={`w-9 h-9 rounded-2xl flex items-center justify-center text-base font-bold border shrink-0 ${
+                          isSelected ? 'bg-emerald-500/20 text-emerald-700 border-emerald-300' : 'bg-slate-100 text-slate-600 border-slate-200'
+                        }`} title={getPatientInjuryMeta(p).label}>
+                          {getPatientInjuryMeta(p).icon}
+                        </div>
+                        <div>
+                          <h3 className="font-extrabold text-slate-900 text-sm">{p.name}</h3>
+                          <p className="text-[11px] text-slate-400 truncate mt-0.5">{p.email}</p>
+                        </div>
                       </div>
                       <span className="text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                        {p.focusArea || 'General'}
+                        {getPatientInjuryMeta(p).label}
                       </span>
                     </div>
 

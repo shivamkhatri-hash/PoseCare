@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_URL } from '../config';
 import PoseCareLogo from '../components/PoseCareLogo';
+import { authStorage } from '../utils/authStorage';
 
 export default function Auth() {
   const [view, setView] = useState('login'); // 'login' | 'register' | 'forgot'
@@ -23,21 +24,27 @@ export default function Auth() {
   
   const navigate = useNavigate();
 
+  const handleRoleNavigation = (userObj) => {
+    if (!userObj) {
+      navigate('/patient');
+      return;
+    }
+    const path = authStorage.getRolePath(userObj.role);
+    navigate(path);
+  };
+
+  // If user is already authenticated in active session, redirect them directly to their role portal
+  useEffect(() => {
+    const existingUser = authStorage.getUser();
+    const token = authStorage.getToken();
+    if (existingUser && token) {
+      handleRoleNavigation(existingUser);
+    }
+  }, [navigate]);
+
   const clearAlerts = () => {
     setFeedbackMessage(null);
     setErrorMessage(null);
-  };
-
-  const handleRoleNavigation = (userObj) => {
-    if (userObj.role === 'admin') {
-      navigate('/admin');
-    } else if (userObj.role === 'doctor') {
-      navigate('/doctor');
-    } else if (userObj.role === 'physiotherapist') {
-      navigate('/physio');
-    } else {
-      navigate('/patient');
-    }
   };
 
   // Handle Registration
@@ -82,8 +89,7 @@ export default function Auth() {
         setStep(2);
         setFeedbackMessage('🔑 First-time verification code (OTP) sent to your email.');
       } else {
-        localStorage.setItem('token', data.token);
-        localStorage.setItem('user', JSON.stringify(data.user));
+        authStorage.setAuth(data.token, data.user);
         handleRoleNavigation(data.user);
       }
     } catch (err) {
@@ -107,8 +113,7 @@ export default function Auth() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || data.error);
       
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      authStorage.setAuth(data.token, data.user);
       handleRoleNavigation(data.user);
     } catch (err) {
       setErrorMessage(err.message);
@@ -268,11 +273,11 @@ export default function Auth() {
                 <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
-                    onClick={() => { setEmail('dctor1@test.com'); setPassword('doctor123'); clearAlerts(); }}
+                    onClick={() => { setEmail('doctor1@test.com'); setPassword('test123'); clearAlerts(); }}
                     className="p-2 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-xs font-bold transition-all text-center flex flex-col items-center justify-center gap-0.5 cursor-pointer"
                   >
                     <span>🩺 Doctor</span>
-                    <span className="text-[9px] text-blue-500 font-mono">dctor1@test</span>
+                    <span className="text-[9px] text-blue-500 font-mono">doctor1@test.com</span>
                   </button>
                   <button
                     type="button"

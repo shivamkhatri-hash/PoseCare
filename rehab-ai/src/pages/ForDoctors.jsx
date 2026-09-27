@@ -1,16 +1,15 @@
 import { Link, useNavigate } from 'react-router-dom';
 import PoseCareLogo from '../components/PoseCareLogo';
+import { authStorage } from '../utils/authStorage';
 
 export default function ForDoctors() {
   const navigate = useNavigate();
-  const token = localStorage.getItem('token');
-  const user = JSON.parse(localStorage.getItem('user') || 'null');
+  const token = authStorage.getToken();
+  const user = authStorage.getUser();
 
   const handlePortalRedirect = () => {
     if (token && user) {
-      if (user.role === 'doctor') navigate('/doctor');
-      else if (user.role === 'admin') navigate('/admin');
-      else navigate('/patient');
+      navigate(authStorage.getRolePath(user.role));
     } else {
       navigate('/auth');
     }

@@ -283,20 +283,24 @@ const seedDatabase = async () => {
     console.log('🌱 Super Admin initialized: admin@rehab.com / admin123');
   }
 
-  // Seed Default Verified Doctor (dctor1@test.com)
-  let testDoctor = await User.findOne({ email: 'dctor1@test.com' });
+  // Seed Default Verified Doctor (doctor1@test.com / test123)
+  let testDoctor = await User.findOne({ email: 'doctor1@test.com' });
+  const hashedDocPass = await bcrypt.hash('test123', 10);
   if (!testDoctor) {
-    const hashedDocPass = await bcrypt.hash('doctor123', 10);
     testDoctor = new User({
       name: 'Dr. Test Specialist',
-      email: 'dctor1@test.com',
+      email: 'doctor1@test.com',
       role: 'doctor',
       password: hashedDocPass,
       focusArea: 'general',
       isVerified: true
     });
     await testDoctor.save();
-    console.log('🌱 Verified Doctor initialized: dctor1@test.com / doctor123');
+    console.log('🌱 Verified Doctor initialized: doctor1@test.com / test123');
+  } else {
+    testDoctor.password = hashedDocPass;
+    testDoctor.isVerified = true;
+    await testDoctor.save();
   }
 
   // Seed Default Verified Physiotherapist (physio@test.com)

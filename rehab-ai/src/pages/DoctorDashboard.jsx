@@ -3,6 +3,182 @@ import { useNavigate } from 'react-router-dom';
 import { API_URL, CV_API_URL } from '../config';
 import PoseCareLogo from '../components/PoseCareLogo';
 import AnatomicalJointViewer from '../components/AnatomicalJointViewer';
+import { authStorage } from '../utils/authStorage';
+
+// Dynamic Anatomical Injury & Joint Metadata Resolver
+export const getPatientInjuryMeta = (patient, selectedPatientId = null, activeFormPathology = '', activeFormExercise = '') => {
+  if (!patient) {
+    return {
+      icon: '🦵',
+      label: 'Knee',
+      badgeBg: 'bg-teal-500/20 text-teal-300 border-teal-500/40',
+      color: 'teal',
+      jointType: 'knee'
+    };
+  }
+
+  const isSelected = selectedPatientId && patient._id === selectedPatientId;
+  const pathologyStr = (isSelected && activeFormPathology ? activeFormPathology : (patient.pathology || patient.diagnosis || ''))?.toLowerCase() || '';
+  const focusStr = (patient.focusArea || '').toLowerCase();
+  const exerciseStr = (isSelected && activeFormExercise ? activeFormExercise : (patient.prescribedExercise || ''))?.toLowerCase() || '';
+
+  // 1. Shoulder & Rotator Cuff
+  if (
+    focusStr.includes('shoulder') ||
+    pathologyStr.includes('shoulder') ||
+    pathologyStr.includes('rotator') ||
+    pathologyStr.includes('cuff') ||
+    pathologyStr.includes('supraspinatus') ||
+    pathologyStr.includes('labrum (slap)') ||
+    pathologyStr.includes('glenoid') ||
+    pathologyStr.includes('subacromial') ||
+    exerciseStr.includes('shoulder') ||
+    exerciseStr.includes('wall slide')
+  ) {
+    return {
+      icon: '💪',
+      label: 'Shoulder',
+      badgeBg: 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40',
+      color: 'indigo',
+      jointType: 'shoulder'
+    };
+  }
+
+  // 2. Elbow & Bicep / Upper Arm
+  if (
+    focusStr.includes('elbow') ||
+    focusStr.includes('upper_body') ||
+    pathologyStr.includes('elbow') ||
+    pathologyStr.includes('bicep') ||
+    pathologyStr.includes('tricep') ||
+    pathologyStr.includes('bicipital') ||
+    exerciseStr.includes('bicep') ||
+    exerciseStr.includes('curl')
+  ) {
+    return {
+      icon: '🏋️',
+      label: 'Elbow / Arm',
+      badgeBg: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+      color: 'amber',
+      jointType: 'elbow'
+    };
+  }
+
+  // 3. Spine / Vertebral / Lumbar / Core
+  if (
+    focusStr.includes('spine') ||
+    focusStr.includes('back') ||
+    focusStr.includes('lumbar') ||
+    focusStr.includes('core') ||
+    pathologyStr.includes('spine') ||
+    pathologyStr.includes('disc') ||
+    pathologyStr.includes('lumbar') ||
+    pathologyStr.includes('herniat') ||
+    pathologyStr.includes('facet') ||
+    pathologyStr.includes('cervical') ||
+    pathologyStr.includes('sciatica') ||
+    exerciseStr.includes('bird dog') ||
+    exerciseStr.includes('crunch')
+  ) {
+    return {
+      icon: '🧘',
+      label: 'Spine',
+      badgeBg: 'bg-purple-500/20 text-purple-300 border-purple-500/40',
+      color: 'purple',
+      jointType: 'spine'
+    };
+  }
+
+  // 4. Hip & Pelvis
+  if (
+    focusStr.includes('hip') ||
+    focusStr.includes('pelvis') ||
+    pathologyStr.includes('hip') ||
+    pathologyStr.includes('fai') ||
+    pathologyStr.includes('acetabular') ||
+    pathologyStr.includes('trochanter') ||
+    pathologyStr.includes('gluteal') ||
+    exerciseStr.includes('hip')
+  ) {
+    return {
+      icon: '🩻',
+      label: 'Hip / Pelvis',
+      badgeBg: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
+      color: 'cyan',
+      jointType: 'hip'
+    };
+  }
+
+  // 5. Ankle & Foot / Achilles
+  if (
+    focusStr.includes('ankle') ||
+    focusStr.includes('foot') ||
+    pathologyStr.includes('ankle') ||
+    pathologyStr.includes('achilles') ||
+    pathologyStr.includes('atfl') ||
+    pathologyStr.includes('plantar') ||
+    exerciseStr.includes('calf raise') ||
+    exerciseStr.includes('balance')
+  ) {
+    return {
+      icon: '🦶',
+      label: 'Ankle / Foot',
+      badgeBg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
+      color: 'emerald',
+      jointType: 'ankle'
+    };
+  }
+
+  // 6. Wrist & Hand
+  if (
+    focusStr.includes('wrist') ||
+    focusStr.includes('hand') ||
+    pathologyStr.includes('wrist') ||
+    pathologyStr.includes('carpal') ||
+    pathologyStr.includes('hand')
+  ) {
+    return {
+      icon: '✋',
+      label: 'Wrist / Hand',
+      badgeBg: 'bg-sky-500/20 text-sky-300 border-sky-500/40',
+      color: 'sky',
+      jointType: 'wrist'
+    };
+  }
+
+  // 7. Knee & Lower Leg (ACL, Meniscus, MCL, Patella, Squat, Extension, etc.)
+  if (
+    focusStr.includes('knee') ||
+    focusStr.includes('leg') ||
+    focusStr.includes('lower_body') ||
+    pathologyStr.includes('knee') ||
+    pathologyStr.includes('acl') ||
+    pathologyStr.includes('mcl') ||
+    pathologyStr.includes('pcl') ||
+    pathologyStr.includes('menisc') ||
+    pathologyStr.includes('patell') ||
+    exerciseStr.includes('squat') ||
+    exerciseStr.includes('knee extension') ||
+    exerciseStr.includes('leg raise')
+  ) {
+    return {
+      icon: '🦵',
+      label: 'Knee',
+      badgeBg: 'bg-teal-500/20 text-teal-300 border-teal-500/40',
+      color: 'teal',
+      jointType: 'knee'
+    };
+  }
+
+  // Fallback to General Orthopedic Bone
+  return {
+    icon: '🦴',
+    label: 'Orthopedics',
+    badgeBg: 'bg-slate-700/60 text-slate-300 border-slate-600/50',
+    color: 'slate',
+    jointType: 'knee'
+  };
+};
 
 // Biomechanical Clinical Protocols Directory
 const CLINICAL_PROTOCOLS = {
@@ -101,6 +277,9 @@ export default function DoctorDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [patientDirectoryFilter, setPatientDirectoryFilter] = useState('all'); // 'all', 'active', 'pending'
   const [activeTab, setActiveTab] = useState('Dashboard'); // 'Dashboard', 'Patients', 'Schedule', 'Reports', 'Settings', 'Messages'
+  const [sessionSearchTerm, setSessionSearchTerm] = useState('');
+  const [sessionFilterExercise, setSessionFilterExercise] = useState('all');
+  const [sessionFilterGame, setSessionFilterGame] = useState('all');
 
   // Prescription Form State (Mapped to sliders & clinical toggles)
   const [formExercise, setFormExercise] = useState('Mini Squat');
@@ -166,15 +345,15 @@ export default function DoctorDashboard() {
 
   // Security & Data Fetching (Doctors only)
   useEffect(() => {
-    const storedUser = JSON.parse(localStorage.getItem('user'));
+    const storedUser = authStorage.getUser();
     if (!storedUser || storedUser.role !== 'doctor') {
-      navigate('/');
+      navigate('/auth');
       return;
     }
     setUser(storedUser);
     setDoctorProfileName(storedUser.name || 'Dr. John Smith');
 
-    const token = localStorage.getItem('token');
+    const token = authStorage.getToken();
     const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
 
     const fetchPatients = async () => {
@@ -240,7 +419,7 @@ export default function DoctorDashboard() {
   useEffect(() => {
     if (!selectedPatient) return;
     
-    const token = localStorage.getItem('token');
+    const token = authStorage.getToken();
     const authHeaders = token ? { 'Authorization': `Bearer ${token}` } : {};
 
     const fetchPatientData = async () => {
@@ -369,7 +548,7 @@ export default function DoctorDashboard() {
 
   const handleAcceptPatient = async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = authStorage.getToken();
       const currentDocId = user.id || user._id;
       const response = await fetch(`${API_URL}/api/users/patients/${selectedPatient._id}/assign`, {
         method: 'PUT',
@@ -427,7 +606,7 @@ export default function DoctorDashboard() {
       return;
     }
     try {
-      const token = localStorage.getItem('token');
+      const token = authStorage.getToken();
       const exercisesToSave = prescribedList.length > 0 ? prescribedList : [{
         exerciseName: formExercise,
         targetReps: formReps,
@@ -457,7 +636,7 @@ export default function DoctorDashboard() {
           patientId: selectedPatient._id,
           diagnosis: formDiagnosis || 'Musculoskeletal Rehabilitation Protocol',
           pathology: formPathology || 'Right ACL Complex',
-          focusArea: selectedPatient.focusArea,
+          focusArea: selectedPatient.focusArea || (determinedJointType + '_rehab'),
           jointType: determinedJointType,
           restrictions: formRestrictions || '',
           precautions: formPrecautions || '',
@@ -469,6 +648,9 @@ export default function DoctorDashboard() {
         const saved = await response.json();
         setPrescription(saved);
         setPrescribedList(saved.exercises || []);
+        const updatedFocus = saved.focusArea || (determinedJointType + '_rehab');
+        setSelectedPatient(prev => ({ ...prev, pathology: saved.pathology || formPathology, focusArea: updatedFocus, jointType: determinedJointType }));
+        setPatients(prev => prev.map(pt => pt._id === selectedPatient._id ? { ...pt, pathology: saved.pathology || formPathology, focusArea: updatedFocus, jointType: determinedJointType } : pt));
         alert(`✅ Medical Prescription & Safety Directives saved successfully for ${selectedPatient.name}! Pathology: ${saved.pathology || formPathology}`);
       } else {
         const errData = await response.json().catch(() => ({}));
@@ -720,6 +902,35 @@ export default function DoctorDashboard() {
   const totalHoldSecs = patientSessions.reduce((acc, curr) => acc + (curr.hold_time_achieved || 0), 0);
   const peakROM = patientSessions.length > 0 ? Math.max(...patientSessions.map(s => s.max_angle_achieved || 0)) : 0;
 
+  // Granular Adherence Rate & Target Compliance
+  const uniqueSessionDates = new Set(patientSessions.map(s => new Date(s.date).toISOString().slice(0, 10)));
+  const targetWeeklySessions = 5;
+  const adherenceRatePct = patientSessions.length > 0 
+    ? Math.min(100, Math.round((uniqueSessionDates.size / Math.max(1, targetWeeklySessions)) * 100))
+    : 0;
+
+  const romComplianceRate = patientSessions.length > 0
+    ? Math.round((patientSessions.filter(s => (s.max_angle_achieved || 0) >= (formSuccessAngle * 0.85)).length / patientSessions.length) * 100)
+    : 0;
+
+  const totalValidReps = patientSessions.reduce((acc, curr) => acc + (curr.valid_reps || curr.reps_completed || 0), 0);
+  const totalInvalidReps = patientSessions.reduce((acc, curr) => acc + (curr.invalid_reps || 0), 0);
+  const totalFormViolations = patientSessions.reduce((acc, curr) => acc + (curr.form_violations_count || (curr.form_violations?.length) || 0), 0);
+  const discomfortSessionsCount = patientSessions.filter(s => s.discomfortReported || s.stoppedEarly).length;
+
+  // Filtered Sessions for the Telemetry Table
+  const filteredPatientSessions = patientSessions.filter(s => {
+    const matchesSearch = !sessionSearchTerm || 
+      (s.exerciseName || '').toLowerCase().includes(sessionSearchTerm.toLowerCase()) ||
+      (s.gamePlayed || '').toLowerCase().includes(sessionSearchTerm.toLowerCase());
+    const matchesEx = sessionFilterExercise === 'all' || s.exerciseName === sessionFilterExercise;
+    const matchesGame = sessionFilterGame === 'all' || s.gamePlayed === sessionFilterGame;
+    return matchesSearch && matchesEx && matchesGame;
+  });
+
+  const uniqueSessionExercises = Array.from(new Set(patientSessions.map(s => s.exerciseName).filter(Boolean)));
+  const uniqueSessionGames = Array.from(new Set(patientSessions.map(s => s.gamePlayed).filter(Boolean)));
+
   const getInitials = (name) => {
     if (!name) return 'DR';
     const parts = name.split(' ').filter(p => !p.toLowerCase().includes('dr'));
@@ -815,7 +1026,7 @@ export default function DoctorDashboard() {
           {filteredPatients.map(p => {
             const isAssigned = isPatientAssignedToMe(p);
             const isSelected = selectedPatient?._id === p._id;
-            const jointIcon = p.focusArea?.includes('shoulder') ? '💪' : p.focusArea?.includes('hip') ? '🦴' : '🦵';
+            const injuryMeta = getPatientInjuryMeta(p, selectedPatient?._id, formPathology, formExercise);
             return (
               <div 
                 key={p._id}
@@ -831,11 +1042,21 @@ export default function DoctorDashboard() {
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold border shrink-0 ${isSelected ? 'bg-teal-500/20 text-teal-300 border-teal-500/40' : 'bg-slate-800 text-slate-300 border-slate-700'}`}>
-                      {jointIcon}
+                    <div 
+                      className={`w-8 h-8 rounded-xl flex items-center justify-center text-sm font-bold border shrink-0 transition-all ${
+                        isSelected 
+                          ? (injuryMeta.badgeBg || 'bg-teal-500/20 text-teal-300 border-teal-500/40') 
+                          : 'bg-slate-800 text-slate-300 border-slate-700'
+                      }`}
+                      title={`${injuryMeta.label} - ${p.pathology || p.focusArea || 'Active Protocol'}`}
+                    >
+                      {injuryMeta.icon}
                     </div>
                     <div className="min-w-0">
-                      <span className="text-[9px] font-mono text-slate-400 uppercase block leading-none">PT-{p._id.slice(-4).toUpperCase()}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[9px] font-mono text-slate-400 uppercase block leading-none">PT-{p._id.slice(-4).toUpperCase()}</span>
+                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tight px-1 py-0.5 bg-slate-800/80 rounded border border-slate-700/60 leading-tight truncate max-w-[85px]">{injuryMeta.label}</span>
+                      </div>
                       <h4 className={`text-xs font-bold truncate mt-0.5 ${isSelected ? 'text-white' : 'text-slate-200'}`}>
                         {p.name}
                       </h4>
@@ -962,16 +1183,34 @@ export default function DoctorDashboard() {
                   {/* High-Fidelity Dynamic Anatomical Joint Viewer */}
                   <div className="w-full">
                     <AnatomicalJointViewer 
-                      jointType={selectedPatient.focusArea?.includes('shoulder') ? 'shoulder' : selectedPatient.focusArea?.includes('hip') ? 'hip' : selectedPatient.focusArea?.includes('spine') ? 'spine' : selectedPatient.focusArea?.includes('ankle') ? 'ankle' : 'knee'}
+                      jointType={
+                        (formPathology.toLowerCase().includes('shoulder') || selectedPatient.focusArea?.includes('shoulder')) ? 'shoulder' :
+                        (formPathology.toLowerCase().includes('hip') || selectedPatient.focusArea?.includes('hip')) ? 'hip' :
+                        (formPathology.toLowerCase().includes('spine') || selectedPatient.focusArea?.includes('spine')) ? 'spine' :
+                        (formPathology.toLowerCase().includes('ankle') || selectedPatient.focusArea?.includes('ankle')) ? 'ankle' : 'knee'
+                      }
                       label={formPathology || (selectedPatient.focusArea?.includes('shoulder') ? 'Rotator Cuff Articulation' : selectedPatient.focusArea?.includes('hip') ? 'Acetabular Labrum' : 'Right ACL Complex')}
                       subLabel={formExercise || 'Prescribed Protocol'}
                       romValue={parseInt(lastAngle) || formSuccessAngle}
                       compact={false}
-                      onPathologyChange={(p) => {
+                      onPathologyChange={(p, activeRegion) => {
                         setFormPathology(p.name);
                         if (!formDiagnosis || formDiagnosis.includes('Protocol') || formDiagnosis === 'Musculoskeletal Rehabilitation') {
                           setFormDiagnosis(p.name + ' Rehabilitation Protocol');
                         }
+                        const regionKey = activeRegion || (
+                          p.name.toLowerCase().includes('shoulder') || p.name.toLowerCase().includes('rotator') ? 'shoulder' :
+                          p.name.toLowerCase().includes('hip') || p.name.toLowerCase().includes('labrum') ? 'hip' :
+                          p.name.toLowerCase().includes('spine') || p.name.toLowerCase().includes('disc') ? 'spine' :
+                          p.name.toLowerCase().includes('ankle') || p.name.toLowerCase().includes('achilles') ? 'ankle' : 'knee'
+                        );
+                        const mappedFocus = regionKey === 'shoulder' ? 'shoulder_rehab' :
+                                           regionKey === 'hip' ? 'hip_rehab' :
+                                           regionKey === 'spine' ? 'spine_rehab' :
+                                           regionKey === 'ankle' ? 'ankle_rehab' : 'knee_rehab';
+                        
+                        setSelectedPatient(prev => ({ ...prev, pathology: p.name, focusArea: mappedFocus, jointType: regionKey }));
+                        setPatients(prev => prev.map(pt => pt._id === selectedPatient._id ? { ...pt, pathology: p.name, focusArea: mappedFocus, jointType: regionKey } : pt));
                       }}
                     />
                   </div>
@@ -1099,29 +1338,43 @@ export default function DoctorDashboard() {
                     {/* Adherence */}
                     <div>
                       <div className="flex justify-between text-xs font-bold mb-1.5">
-                        <span className="text-slate-600 text-[11px]">Exercise adherence</span>
+                        <span className="text-slate-600 text-[11px]">Weekly Exercise Adherence</span>
                         <span className="text-amber-700 font-black font-mono">
-                          {patientSessions.length > 0 ? `${Math.min(100, Math.round((patientSessions.length / 5) * 83))}%` : '83%'}
+                          {adherenceRatePct}% ({uniqueSessionDates.size}/5 target days)
                         </span>
                       </div>
                       <div className="w-full h-3 bg-slate-100 rounded-lg overflow-hidden p-0.5 border border-slate-200/60">
                         <div 
                           className="h-full rounded bg-striped-amber transition-all duration-500" 
-                          style={{ width: patientSessions.length > 0 ? `${Math.min(100, Math.round((patientSessions.length / 5) * 83))}%` : '83%' }}
+                          style={{ width: `${adherenceRatePct}%` }}
                         />
                       </div>
                     </div>
 
-                    {/* Strength Symmetry */}
+                    {/* ROM Target Compliance */}
                     <div>
                       <div className="flex justify-between text-xs font-bold mb-1.5">
-                        <span className="text-slate-600 text-[11px]">Strength symmetry</span>
-                        <span className="text-purple-700 font-black font-mono">{avgFormAccuracy ? `${avgFormAccuracy}%` : '78%'}</span>
+                        <span className="text-slate-600 text-[11px]">ROM Target Achievement Rate</span>
+                        <span className="text-teal-700 font-black font-mono">{romComplianceRate}%</span>
+                      </div>
+                      <div className="w-full h-3 bg-slate-100 rounded-lg overflow-hidden p-0.5 border border-slate-200/60">
+                        <div 
+                          className="h-full rounded bg-teal-500 transition-all duration-500" 
+                          style={{ width: `${romComplianceRate}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Biomechanical Form Quality */}
+                    <div>
+                      <div className="flex justify-between text-xs font-bold mb-1.5">
+                        <span className="text-slate-600 text-[11px]">Biomechanical Form Accuracy</span>
+                        <span className="text-purple-700 font-black font-mono">{avgFormAccuracy}%</span>
                       </div>
                       <div className="w-full h-3 bg-slate-100 rounded-lg overflow-hidden p-0.5 border border-slate-200/60">
                         <div 
                           className="h-full rounded bg-striped-purple transition-all duration-500" 
-                          style={{ width: `${avgFormAccuracy || 78}%` }}
+                          style={{ width: `${avgFormAccuracy}%` }}
                         />
                       </div>
                     </div>
@@ -1223,52 +1476,137 @@ export default function DoctorDashboard() {
                 </div>
               )}
 
-              {/* Recent Sessions Table Preview */}
+              {/* Recent Sessions Table & Granular Telemetry */}
               <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-200 shadow-sm space-y-4">
-                <div className="flex justify-between items-center border-b border-slate-100 pb-4">
-                  <h3 className="text-base font-extrabold text-slate-900">Recent Session Log Telemetry</h3>
-                  <button 
-                    onClick={() => handleExportPatientCSV(selectedPatient, patientSessions)}
-                    className="text-xs text-teal-600 hover:text-teal-700 font-bold"
-                  >
-                    Export All Telemetry &rarr;
-                  </button>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-slate-100 pb-4">
+                  <div>
+                    <h3 className="text-base font-extrabold text-slate-900">Patient Session History & Biomechanical Telemetry</h3>
+                    <p className="text-xs text-slate-400">Total sessions logged: <span className="font-bold text-slate-700">{patientSessions.length}</span> • Discomfort reports: <span className="font-bold text-amber-700">{discomfortSessionsCount}</span></p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => handleExportPatientCSV(selectedPatient, filteredPatientSessions)}
+                      className="text-xs text-teal-700 bg-teal-50 border border-teal-200 hover:bg-teal-100 font-bold px-3 py-1.5 rounded-xl transition-all shadow-xs"
+                    >
+                      📥 Export Filtered CSV
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filter & Search Bar */}
+                <div className="flex flex-wrap gap-2.5 items-center justify-between text-xs">
+                  <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[240px]">
+                    <input 
+                      type="text" 
+                      placeholder="Search exercise or game mode..."
+                      value={sessionSearchTerm}
+                      onChange={(e) => setSessionSearchTerm(e.target.value)}
+                      className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-teal-500 w-48"
+                    />
+                    <select 
+                      value={sessionFilterExercise}
+                      onChange={(e) => setSessionFilterExercise(e.target.value)}
+                      className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-teal-500"
+                    >
+                      <option value="all">All Exercises</option>
+                      {uniqueSessionExercises.map((ex, i) => (
+                        <option key={i} value={ex}>{ex}</option>
+                      ))}
+                    </select>
+                    <select 
+                      value={sessionFilterGame}
+                      onChange={(e) => setSessionFilterGame(e.target.value)}
+                      className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-teal-500"
+                    >
+                      <option value="all">All Games</option>
+                      {uniqueSessionGames.map((gm, i) => (
+                        <option key={i} value={gm}>{gm}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <span className="text-[11px] font-bold text-slate-400">
+                    Showing {filteredPatientSessions.length} of {patientSessions.length} sessions
+                  </span>
                 </div>
 
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs border-collapse">
                     <thead>
-                      <tr className="border-b border-slate-200 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                        <th className="pb-3 pr-2">Date & Time</th>
-                        <th className="pb-3 pr-2">Exercise</th>
-                        <th className="pb-3 pr-2">Game Mode</th>
-                        <th className="pb-3 pr-2 text-center">Reps</th>
-                        <th className="pb-3 pr-2 text-center">Max ROM</th>
-                        <th className="pb-3 text-center">Form Accuracy</th>
+                      <tr className="border-b border-slate-200 bg-slate-50/50 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
+                        <th className="py-2.5 px-3">Date & Time</th>
+                        <th className="py-2.5 px-3">Exercise Protocol</th>
+                        <th className="py-2.5 px-3">Game Mode</th>
+                        <th className="py-2.5 px-3 text-center">Valid / Attempted</th>
+                        <th className="py-2.5 px-3 text-center">Peak ROM (° / Target)</th>
+                        <th className="py-2.5 px-3 text-center">Hold Time</th>
+                        <th className="py-2.5 px-3 text-center">Form Accuracy</th>
+                        <th className="py-2.5 px-3">Compensations & Notes</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {patientSessions.slice(0, 5).map((session, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="py-3.5 pr-2 font-medium">
-                            <span className="font-bold text-slate-800 block">{new Date(session.date).toLocaleDateString()}</span>
-                            <span className="text-[10px] text-slate-400">{new Date(session.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                          </td>
-                          <td className="py-3.5 pr-2 font-bold text-slate-900">{session.exerciseName}</td>
-                          <td className="py-3.5 pr-2 text-slate-600">
-                            <span className="bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-lg text-[10px] font-medium">
-                              {session.gamePlayed || 'Standard Tracker'}
-                            </span>
-                          </td>
-                          <td className="py-3.5 pr-2 text-center font-bold text-teal-600">{session.reps_completed}</td>
-                          <td className="py-3.5 pr-2 text-center font-mono font-bold text-purple-600">{Math.round(session.max_angle_achieved || 0)}°</td>
-                          <td className="py-3.5 text-center font-bold text-indigo-600">{session.success_rate || 100}%</td>
-                        </tr>
-                      ))}
-                      {patientSessions.length === 0 && (
+                      {filteredPatientSessions.map((session, idx) => {
+                        const targetAngleVal = formSuccessAngle || 90;
+                        const isRomMet = (session.max_angle_achieved || 0) >= (targetAngleVal * 0.85);
+                        const hasViolations = (session.form_violations && session.form_violations.length > 0) || session.form_violations_count > 0;
+                        return (
+                          <tr key={session._id || idx} className="hover:bg-slate-50/70 transition-colors">
+                            <td className="py-3 px-3 font-medium">
+                              <span className="font-bold text-slate-900 block">{new Date(session.date).toLocaleDateString()}</span>
+                              <span className="text-[10px] text-slate-400">{new Date(session.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                            </td>
+                            <td className="py-3 px-3 font-bold text-slate-900">{session.exerciseName}</td>
+                            <td className="py-3 px-3 text-slate-600">
+                              <span className="bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-lg text-[10px] font-medium">
+                                {session.gamePlayed || 'Standard Tracker'}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 text-center">
+                              <span className="font-bold text-teal-600">{session.valid_reps || session.reps_completed}</span>
+                              <span className="text-slate-400 font-medium"> / {(session.valid_reps || session.reps_completed || 0) + (session.invalid_reps || 0)}</span>
+                            </td>
+                            <td className="py-3 px-3 text-center">
+                              <span className={`font-mono font-bold ${isRomMet ? 'text-purple-600' : 'text-amber-600'}`}>
+                                {Math.round(session.max_angle_achieved || 0)}°
+                              </span>
+                              <span className="text-[10px] text-slate-400 block font-mono">Target {targetAngleVal}°</span>
+                            </td>
+                            <td className="py-3 px-3 text-center text-slate-700 font-mono">
+                              {session.hold_time_achieved > 0 ? `${session.hold_time_achieved}s` : '—'}
+                            </td>
+                            <td className="py-3 px-3 text-center">
+                              <span className={`font-black px-2 py-0.5 rounded-full text-[11px] ${
+                                (session.success_rate || 100) >= 85 
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                                  : (session.success_rate || 100) >= 70 
+                                    ? 'bg-amber-50 text-amber-700 border border-amber-200' 
+                                    : 'bg-rose-50 text-rose-700 border border-rose-200'
+                              }`}>
+                                {session.success_rate || 100}%
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 text-[11px]">
+                              {session.discomfortReported ? (
+                                <span className="bg-rose-50 border border-rose-200 text-rose-700 font-bold px-2 py-0.5 rounded-md text-[10px] inline-flex items-center gap-1">
+                                  <span>⚠️</span>
+                                  <span>{session.discomfortNotes || 'Discomfort Reported'}</span>
+                                </span>
+                              ) : hasViolations ? (
+                                <span className="text-amber-700 font-medium text-[10px] truncate max-w-[180px] block">
+                                  {session.form_violations?.[0] || `${session.form_violations_count} form alerts`}
+                                </span>
+                              ) : (
+                                <span className="text-emerald-600 font-bold text-[10px]">✓ Optimal Kinematics</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {filteredPatientSessions.length === 0 && (
                         <tr>
-                          <td colSpan="6" className="py-8 text-center text-slate-400 font-medium">
-                            No workout telemetry recorded yet for this patient.
+                          <td colSpan="8" className="py-8 text-center text-slate-400 font-medium">
+                            {patientSessions.length === 0 
+                              ? 'No workout telemetry recorded yet for this patient.' 
+                              : 'No sessions matching your active filter criteria.'}
                           </td>
                         </tr>
                       )}
@@ -1350,8 +1688,8 @@ export default function DoctorDashboard() {
                     return (
                       <tr key={p._id} className="hover:bg-slate-50/50 transition-colors">
                         <td className="py-4 px-6 flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-2xl bg-teal-50 border border-teal-200 flex items-center justify-center text-sm font-black text-teal-700">
-                            {p.name.charAt(0)}
+                          <div className="w-9 h-9 rounded-2xl bg-teal-50 border border-teal-200 flex items-center justify-center text-base font-bold text-teal-700 shrink-0" title={getPatientInjuryMeta(p).label}>
+                            {getPatientInjuryMeta(p).icon}
                           </div>
                           <div>
                             <span className="font-extrabold text-slate-900 block">{p.name}</span>
@@ -1618,13 +1956,13 @@ export default function DoctorDashboard() {
                         isChatSelected ? 'bg-teal-50/60 border-l-4 border-teal-600' : 'hover:bg-slate-50'
                       }`}
                     >
-                      <div className="flex gap-3">
-                        <div className="w-9 h-9 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-600 shrink-0">
-                          {patient.name.charAt(0)}
+                      <div className="flex gap-3 items-center">
+                        <div className="w-9 h-9 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-base font-bold text-slate-600 shrink-0" title={getPatientInjuryMeta(patient).label}>
+                          {getPatientInjuryMeta(patient).icon}
                         </div>
                         <div className="min-w-0">
                           <span className="font-extrabold text-slate-900 text-xs block">{patient.name}</span>
-                          <p className="text-[10px] text-slate-400 truncate mt-0.5">Click to view patient consultation notes</p>
+                          <p className="text-[10px] text-slate-400 truncate mt-0.5">{getPatientInjuryMeta(patient).label} • Consultation Notes</p>
                         </div>
                       </div>
                     </div>
@@ -2215,24 +2553,24 @@ export default function DoctorDashboard() {
               {/* Clinical Metrics Highlights Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div className="p-4 rounded-2xl border border-slate-200 bg-white text-center">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Total Repetitions</span>
-                  <span className="text-2xl font-black text-teal-600 mt-1 block">{totalRepsCompleted}</span>
-                  <span className="text-[10px] text-slate-400">Prescribed volume</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Weekly Adherence Rate</span>
+                  <span className="text-2xl font-black text-teal-600 mt-1 block">{adherenceRatePct}%</span>
+                  <span className="text-[10px] text-slate-400">{uniqueSessionDates.size}/5 target days</span>
                 </div>
                 <div className="p-4 rounded-2xl border border-slate-200 bg-white text-center">
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Average Form Accuracy</span>
                   <span className="text-2xl font-black text-indigo-600 mt-1 block">{avgFormAccuracy}%</span>
-                  <span className="text-[10px] text-emerald-600 font-bold">Clinical Grade</span>
+                  <span className="text-[10px] text-emerald-600 font-bold">Valid Reps: {totalValidReps}</span>
                 </div>
                 <div className="p-4 rounded-2xl border border-slate-200 bg-white text-center">
                   <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Peak ROM Achieved</span>
                   <span className="text-2xl font-black text-purple-600 mt-1 block">{Math.round(peakROM)}°</span>
-                  <span className="text-[10px] text-purple-600 font-bold">Target: {formSuccessAngle}°</span>
+                  <span className="text-[10px] text-purple-600 font-bold">Target: {formSuccessAngle}° ({romComplianceRate}% Met)</span>
                 </div>
                 <div className="p-4 rounded-2xl border border-slate-200 bg-white text-center">
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Total Sessions</span>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Total Workouts</span>
                   <span className="text-2xl font-black text-slate-900 mt-1 block">{patientSessions.length}</span>
-                  <span className="text-[10px] text-slate-400">Completed workouts</span>
+                  <span className="text-[10px] text-amber-700 font-bold">{totalFormViolations} compensations logged</span>
                 </div>
               </div>
 
@@ -2434,12 +2772,16 @@ export default function DoctorDashboard() {
                 <select 
                   value={newPatientFocus}
                   onChange={(e) => setNewPatientFocus(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-1 focus:ring-teal-500 font-semibold"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-1 focus:ring-teal-500 font-semibold text-slate-800"
                 >
-                  <option value="knee_rehab">Knee Rehabilitation (ACL/MCL/Meniscus)</option>
-                  <option value="shoulder_rehab">Shoulder Joint & Rotator Cuff</option>
-                  <option value="upper_body">Upper Body & Bicep Mobility</option>
-                  <option value="general">General Physical Therapy</option>
+                  <option value="knee_rehab">🦵 Knee Rehabilitation (ACL / MCL / Meniscus)</option>
+                  <option value="shoulder_rehab">💪 Shoulder Joint & Rotator Cuff (Labrum / Supraspinatus)</option>
+                  <option value="spine_rehab">🧘 Spine & Lumbar Core (Disc Herniation / Posture)</option>
+                  <option value="upper_body">🏋️ Elbow & Bicep Tendinopathy (Upper Body)</option>
+                  <option value="hip_rehab">🩻 Hip Joint & Pelvis (Labral Tear / FAI)</option>
+                  <option value="ankle_rehab">🦶 Ankle & Foot Complex (Achilles / ATFL)</option>
+                  <option value="wrist_rehab">✋ Wrist & Hand Mobility (Carpal Tunnel)</option>
+                  <option value="general">🦴 General Orthopedic Rehabilitation</option>
                 </select>
               </div>
 
