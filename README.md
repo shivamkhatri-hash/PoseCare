@@ -101,3 +101,13 @@ The user interface where patients play exercises and doctors assign goals.
 *   **Frontend**: React (Vite), Tailwind CSS, Recharts (data visualizations), Web Speech API.
 *   **Backend**: Node.js, Express, Mongoose / MongoDB Atlas, JWT.
 *   **Computer Vision**: Python 3, Flask, Google MediaPipe Pose, OpenCV, NumPy.
+
+---
+
+## Contributors
+
+### [Vansh Sharma](https://github.com/Vanshharma09) - Computer Vision
+
+- Contributed to the computer-vision module used for real-time rehabilitation exercise analysis.
+- Worked with MediaPipe Pose and OpenCV for pose-landmark processing and movement tracking.
+- Supported the integration of pose-analysis results with the rehabilitation workflow.
