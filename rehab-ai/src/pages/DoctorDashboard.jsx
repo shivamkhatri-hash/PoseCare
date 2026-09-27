@@ -956,11 +956,6 @@ export default function DoctorDashboard() {
       {/* COLUMN 1: LEFT SIDEBAR (Roster and Navigation Links) */}
       <div className="w-72 bg-slate-900 text-slate-300 flex flex-col h-[calc(100vh-64px)] overflow-y-auto shrink-0 border-r border-slate-800">
         
-        {/* PoseCare Header logo */}
-        <div className="p-4 flex items-center justify-between border-b border-slate-800">
-          <PoseCareLogo size="sm" variant="horizontal" theme="dark" />
-        </div>
-
         {/* Navigation links block */}
         <div className="p-4 space-y-1 border-b border-slate-800">
           {[
